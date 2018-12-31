@@ -5,6 +5,7 @@ orbs:
   github: haskell-works/github-release@1.0.1
   hackage: haskell-works/hackage@1.0.0
 
+
 workflows:
   multiple-ghc-build:
     jobs:
