@@ -8,6 +8,7 @@
 module HaskellWorks.Data.Xml.Succinct.Cursor.Internal
   ( XmlCursor(..)
   , xmlCursorPos
+  , makeXmlCursor
   ) where
 
 import Control.DeepSeq                                    (NFData (..))
@@ -27,6 +28,7 @@ import HaskellWorks.Data.RankSelect.Poppy512
 import HaskellWorks.Data.TreeCursor
 import HaskellWorks.Data.Xml.Succinct.Cursor.BlankedXml
 import HaskellWorks.Data.Xml.Succinct.Cursor.InterestBits
+import HaskellWorks.Data.Xml.Conduit
 
 import qualified Data.ByteString                                      as BS
 import qualified Data.ByteString.Char8                                as BSC
@@ -44,6 +46,15 @@ data XmlCursor t v w = XmlCursor
 
 instance (NFData t, NFData v, NFData w) => NFData (XmlCursor t v w) where
   rnf (XmlCursor a b c d) = rnf (a, b, c, d)
+
+makeXmlCursor :: BS.ByteString -> XmlCursor BS.ByteString (BitShown (DVS.Vector Word64)) (BP.SimpleBalancedParens (DVS.Vector Word64))
+makeXmlCursor bs = XmlCursor
+    { cursorText      = bs
+    , interests       = BitShown interestBits
+    , balancedParens  = BP.SimpleBalancedParens bps
+    , cursorRank      = 1
+    }
+    where (interestBits, bps) = interestAndParens . getBlankedXml $ fromByteString bs
 
 instance  (FromBlankedXml (XmlInterestBits a), FromBlankedXml (CBP.XmlBalancedParens b))
           => FromByteString (XmlCursor BS.ByteString a b) where

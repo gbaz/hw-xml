@@ -6,35 +6,35 @@ module HaskellWorks.Data.Xml.Conduit
   , byteStringToBits
   , blankedXmlToBalancedParens2
   , compressWordAsBit
-  , interestingWord8s
+  , interestAndParens
   , isInterestingWord8
   ) where
 
-import Data.Array.Unboxed             as A
-import Data.ByteString                as BS
+import qualified Data.ByteString      as BS
+import qualified Data.ByteString.Lazy as BSL
+import Data.ByteString                (ByteString)
 import Data.Word
 import Data.Word8
 import HaskellWorks.Data.Bits.BitWise
-import Prelude                        as P
+import HaskellWorks.Data.Vector.Storable
+import qualified Data.Vector.Storable as DVS
+
 
 import qualified Data.Bits as BITS
 
-interestingWord8s :: A.UArray Word8 Word8
-interestingWord8s = A.array (0, 255) [
-  (w, if w == _bracketleft
-         || w == _braceleft
-         || w == _parenleft
-         || w == _bracketleft
-         || w == _less
-         || w == _a || w == _v || w == _t
-    then 1
-    else 0)
-  | w <- [0 .. 255]]
-{-# NOINLINE interestingWord8s #-}
-
-isInterestingWord8 :: Word8 -> Word8
-isInterestingWord8 b = interestingWord8s ! b
+-- Prelude Data.Char> map ord "[{(<avt"
+-- [91,123,40,60,97,118,116
 {-# INLINABLE isInterestingWord8 #-}
+isInterestingWord8 :: Word8 -> Word8
+isInterestingWord8 w = case w of
+                91 -> 1
+                123 -> 1
+                40 -> 1
+                60 -> 1
+                97 -> 1
+                118 -> 1
+                116 -> 1
+                _ -> 0
 
 blankedXmlToInterestBits :: [BS.ByteString] -> [BS.ByteString]
 blankedXmlToInterestBits = blankedXmlToInterestBits' ""
@@ -42,11 +42,8 @@ blankedXmlToInterestBits = blankedXmlToInterestBits' ""
 blankedXmlToInterestBits' :: BS.ByteString -> [BS.ByteString] -> [BS.ByteString]
 blankedXmlToInterestBits' rs is = case is of
   (bs:bss) -> do
-    let cs = if BS.length rs /= 0 then BS.concat [rs, bs] else bs
-    let lencs = BS.length cs
-    let q = lencs `quot` 8
-    let (ds, es) = BS.splitAt (q * 8) cs
-    let (fs, _) = BS.unfoldrN q gen ds
+    let (ds, es) = repartitionMod8 rs bs
+    let (fs, _) = BS.unfoldrN (BS.length ds + 7 `div` 8) gen ds
     fs:blankedXmlToInterestBits' es bss
   [] -> do
     let lenrs = BS.length rs
@@ -55,15 +52,13 @@ blankedXmlToInterestBits' rs is = case is of
   where gen :: ByteString -> Maybe (Word8, ByteString)
         gen as = if BS.length as == 0
           then Nothing
-          else Just ( BS.foldr' (\b m -> (interestingWord8s ! b) .|. (m .<. 1)) 0 (BS.take 8 as)
-                    , BS.drop 8 as
-                    )
+          else Just (BS.foldr' (\b m -> isInterestingWord8 b .|. (m .<. 1)) 0 (BS.take 8 as),
+                     BS.drop 8 as)
 
 repartitionMod8 :: BS.ByteString -> BS.ByteString -> (BS.ByteString, BS.ByteString)
-repartitionMod8 aBS bBS = (BS.take cLen abBS, BS.drop cLen abBS)
-  where abBS = BS.concat [aBS, bBS]
-        abLen = BS.length abBS
-        cLen = (abLen `div` 8) * 8
+repartitionMod8 aBS bBS = BS.splitAt cLen abBS --(BS.take cLen abBS, BS.drop cLen abBS)
+  where abBS = aBS <> bBS
+        cLen = (BS.length abBS `div` 8) * 8
 
 compressWordAsBit :: [BS.ByteString] -> [BS.ByteString]
 compressWordAsBit = compressWordAsBit' BS.empty
@@ -116,6 +111,9 @@ balancedParensOf c = case c of
     d | d == _v            -> MiniTF
     _                      -> MiniN
 
+interestAndParens :: [ByteString] -> (DVS.Vector Word64, DVS.Vector Word64)
+interestAndParens bs = construct64UnzipN (sum (map BS.length bs)) $ zip (blankedXmlToInterestBits bs) (compressWordAsBit . blankedXmlToBalancedParens2 $ bs)
+
 yieldBitsOfWord8 :: Word8 -> [Bool]
 yieldBitsOfWord8 w =
   [ (w .&. BITS.bit 0) /= 0
@@ -129,7 +127,7 @@ yieldBitsOfWord8 w =
   ]
 
 yieldBitsofWord8s :: [Word8] -> [Bool]
-yieldBitsofWord8s = P.foldr ((++) . yieldBitsOfWord8) []
+yieldBitsofWord8s = foldr ((++) . yieldBitsOfWord8) []
 
 byteStringToBits :: [BS.ByteString] -> [Bool]
 byteStringToBits is = case is of
